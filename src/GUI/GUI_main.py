@@ -532,10 +532,8 @@ class EAManGui:
                 selected_directory = os.path.dirname(in_file.name)
             except Exception:
                 selected_directory = ""
-            self.current_open_directory_path = selected_directory  # set directory path from history
-            self.user_config.set(
-                "config", "open_directory_path", selected_directory
-            )  # save directory path to config file
+            self.current_open_directory_path = selected_directory
+            self.user_config.set("config", "open_directory_path", selected_directory)
             with open(self.user_config_file_path, "w") as configfile:
                 self.user_config.write(configfile)
             in_file_path = in_file.name
@@ -544,47 +542,52 @@ class EAManGui:
             messagebox.showwarning("Warning", "Failed to open file!")
             return False
 
-        # import logic (raw data replace)
-        rgba_data: bytes = PillowWrapper().get_pil_rgba_data_for_import(in_file_path)
+        # 1. Load image and get NEW dimensions
+        from PIL import Image
+        with Image.open(in_file_path) as img:
+            import_w, import_h = img.size
+            rgba_data = img.convert("RGBA").tobytes()
+
+        # 2. Call the encoder (which handles the N64 Big-Endian swapping)
         encode_info_dto: EncodeInfoDTO = encode_ea_image(rgba_data, ea_dir, ea_img, self)
 
-        if len(encode_info_dto.encoded_img_data) != len(ea_dir.raw_data):
-            message: str = (f"Image data for import doesn't match. Can't import image! "
-                            f"New data size: {len(encode_info_dto.encoded_img_data)}, "
-                            f"Old data size: {len(ea_dir.raw_data)}")
-            messagebox.showwarning("Warning", message)
-            logger.error(message)
-            return False
+        # 3. FORCE METADATA UPDATE (This unlocks the New Shape tab)
+        ea_dir.h_width = import_w
+        ea_dir.h_height = import_h
+        ea_dir.new_shape_width = import_w
+        ea_dir.new_shape_height = import_h
 
+        # Override the raw data (Size check removed to allow higher res jerseys)
         ea_dir.raw_data = encode_info_dto.encoded_img_data
         ea_dir.entry_import_flag = True
 
-        # replace palette data
+        # 4. Handle Palette (if any)
         if encode_info_dto.is_palette_imported_flag:
             for bin_attach_entry in ea_dir.bin_attachments_list:
                 if bin_attach_entry.h_record_id == encode_info_dto.palette_entry_id:
                     bin_attach_entry.raw_data = encode_info_dto.encoded_palette_data
                     bin_attach_entry.import_flag = True
 
-        # preview update logic start
-        if len(ea_dir.img_convert_data) != len(rgba_data):
-            message: str = f"Wrong size of image preview data! Convert_data_size: {len(ea_dir.img_convert_data)}, Rgba_data_size: {len(rgba_data)}"
-            # messagebox.showwarning("Warning", message)
-            logger.error(message)
-            # return False  # TODO - uncomment this after adding support for mipmaps?
-
-        # preview update
+        # 5. FIX PREVIEW CORRUPTION
+        # We manually inject the clean RGBA data so the preview looks perfect
         logger.info("Preview update for imported image")
-        ea_img.convert_image_data_for_export_and_preview(ea_dir, ea_dir.h_record_id, self)
-        self.entry_preview.init_image_preview_logic(ea_dir, item_iid)  # refresh preview for imported image
+        ea_dir.img_convert_data = rgba_data
 
-        # update tree view entry
+        # Force GUI to refresh tabs based on new dimensions
+        if hasattr(self, 'update_image_tabs_visibility'):
+            self.update_image_tabs_visibility(ea_dir)
+
+        # Reload the preview window
+        self.entry_preview.init_image_preview_logic(ea_dir, item_iid)
+
+        # 6. UI Checkmark
         checkmark_image = Image.open(self.checkmark_path).resize((15, 15))
         self.checkmark_image = ImageTk.PhotoImage(checkmark_image)
         self.tree_view.treeview_widget.tag_configure(item_iid, font=("Segoe UI", 9, "bold"))
         self.tree_view.treeview_widget.tag_configure(item_iid, image=self.checkmark_image)
 
         logger.info("Image has been imported successfully")
+        messagebox.showinfo("Success", "Imported! Check the 'New Shape' tab for the correct view.")
         return True
 
     def treeview_rclick_export_raw(self, item_iid):

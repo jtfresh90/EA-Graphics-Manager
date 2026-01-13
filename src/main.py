@@ -5,8 +5,9 @@ License: GPL-3.0 License
 
 # Program tested on Python 3.11.6
 
-import os
 import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tkinter as tk
 
 import center_tk_window
