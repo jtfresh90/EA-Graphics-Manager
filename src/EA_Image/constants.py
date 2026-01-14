@@ -25,12 +25,12 @@ OLD_SHAPE_ALLOWED_SIGNATURES = (
 )
 
 NEW_SHAPE_ALLOWED_SIGNATURES = (
-    "ShpF",  # PC games
-    "ShpS",  # PS2 games
-    "ShpX",  # XBOX games
-    "ShpM",  # PSP games
-    "ShpG",  # WII/Gamecube games
-    "ShpA",  # Game Boy Advance games
+    "SHPF",  # PC games
+    "SHPS",  # PS2 games
+    "SHPX",  # XBOX games
+    "SHPM",  # PSP games
+    "SHPG",  # WII/Gamecube games
+    "SHPA",  # Game Boy Advance games
 )
 
 mipmaps_resampling_mapping: dict = {

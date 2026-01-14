@@ -154,11 +154,13 @@ class EAManGui:
             self.set_text_in_box(self.tab_controller.file_header_info_box.fh_text_obj_count, ea_img.num_of_entries)
             self.set_text_in_box(self.tab_controller.file_header_info_box.fh_text_dir_id, ea_img.format_version)
             self._execute_old_shape_tab_logic()
-        elif ea_img.sign in NEW_SHAPE_ALLOWED_SIGNATURES:
+        elif ea_img.sign in NEW_SHAPE_ALLOWED_SIGNATURES or ea_img.sign == b'\x1E\xFB':
             self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_sign, ea_img.sign)
             self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_f_size, ea_img.total_f_size)
-            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_obj_count, ea_img.num_of_entries)
-            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_header_and_toc_size, ea_img.header_and_toc_size)
+            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_obj_count,
+                                 ea_img.num_of_entries)
+            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_header_and_toc_size,
+                                 ea_img.header_and_toc_size)
             self._execute_new_shape_tab_logic()
 
         # set text for dir entry
@@ -532,8 +534,10 @@ class EAManGui:
                 selected_directory = os.path.dirname(in_file.name)
             except Exception:
                 selected_directory = ""
-            self.current_open_directory_path = selected_directory
-            self.user_config.set("config", "open_directory_path", selected_directory)
+            self.current_open_directory_path = selected_directory  # set directory path from history
+            self.user_config.set(
+                "config", "open_directory_path", selected_directory
+            )  # save directory path to config file
             with open(self.user_config_file_path, "w") as configfile:
                 self.user_config.write(configfile)
             in_file_path = in_file.name
@@ -542,52 +546,47 @@ class EAManGui:
             messagebox.showwarning("Warning", "Failed to open file!")
             return False
 
-        # 1. Load image and get NEW dimensions
-        from PIL import Image
-        with Image.open(in_file_path) as img:
-            import_w, import_h = img.size
-            rgba_data = img.convert("RGBA").tobytes()
-
-        # 2. Call the encoder (which handles the N64 Big-Endian swapping)
+        # import logic (raw data replace)
+        rgba_data: bytes = PillowWrapper().get_pil_rgba_data_for_import(in_file_path)
         encode_info_dto: EncodeInfoDTO = encode_ea_image(rgba_data, ea_dir, ea_img, self)
 
-        # 3. FORCE METADATA UPDATE (This unlocks the New Shape tab)
-        ea_dir.h_width = import_w
-        ea_dir.h_height = import_h
-        ea_dir.new_shape_width = import_w
-        ea_dir.new_shape_height = import_h
+        if len(encode_info_dto.encoded_img_data) != len(ea_dir.raw_data):
+            message: str = (f"Image data for import doesn't match. Can't import image! "
+                            f"New data size: {len(encode_info_dto.encoded_img_data)}, "
+                            f"Old data size: {len(ea_dir.raw_data)}")
+            messagebox.showwarning("Warning", message)
+            logger.error(message)
+            return False
 
-        # Override the raw data (Size check removed to allow higher res jerseys)
         ea_dir.raw_data = encode_info_dto.encoded_img_data
         ea_dir.entry_import_flag = True
 
-        # 4. Handle Palette (if any)
+        # replace palette data
         if encode_info_dto.is_palette_imported_flag:
             for bin_attach_entry in ea_dir.bin_attachments_list:
                 if bin_attach_entry.h_record_id == encode_info_dto.palette_entry_id:
                     bin_attach_entry.raw_data = encode_info_dto.encoded_palette_data
                     bin_attach_entry.import_flag = True
 
-        # 5. FIX PREVIEW CORRUPTION
-        # We manually inject the clean RGBA data so the preview looks perfect
+        # preview update logic start
+        if len(ea_dir.img_convert_data) != len(rgba_data):
+            message: str = f"Wrong size of image preview data! Convert_data_size: {len(ea_dir.img_convert_data)}, Rgba_data_size: {len(rgba_data)}"
+            # messagebox.showwarning("Warning", message)
+            logger.error(message)
+            # return False  # TODO - uncomment this after adding support for mipmaps?
+
+        # preview update
         logger.info("Preview update for imported image")
-        ea_dir.img_convert_data = rgba_data
+        ea_img.convert_image_data_for_export_and_preview(ea_dir, ea_dir.h_record_id, self)
+        self.entry_preview.init_image_preview_logic(ea_dir, item_iid)  # refresh preview for imported image
 
-        # Force GUI to refresh tabs based on new dimensions
-        if hasattr(self, 'update_image_tabs_visibility'):
-            self.update_image_tabs_visibility(ea_dir)
-
-        # Reload the preview window
-        self.entry_preview.init_image_preview_logic(ea_dir, item_iid)
-
-        # 6. UI Checkmark
+        # update tree view entry
         checkmark_image = Image.open(self.checkmark_path).resize((15, 15))
         self.checkmark_image = ImageTk.PhotoImage(checkmark_image)
         self.tree_view.treeview_widget.tag_configure(item_iid, font=("Segoe UI", 9, "bold"))
         self.tree_view.treeview_widget.tag_configure(item_iid, image=self.checkmark_image)
 
         logger.info("Image has been imported successfully")
-        messagebox.showinfo("Success", "Imported! Check the 'New Shape' tab for the correct view.")
         return True
 
     def treeview_rclick_export_raw(self, item_iid):
