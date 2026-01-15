@@ -154,13 +154,11 @@ class EAManGui:
             self.set_text_in_box(self.tab_controller.file_header_info_box.fh_text_obj_count, ea_img.num_of_entries)
             self.set_text_in_box(self.tab_controller.file_header_info_box.fh_text_dir_id, ea_img.format_version)
             self._execute_old_shape_tab_logic()
-        elif ea_img.sign in NEW_SHAPE_ALLOWED_SIGNATURES or ea_img.sign == b'\x1E\xFB':
+        elif ea_img.sign in NEW_SHAPE_ALLOWED_SIGNATURES:
             self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_sign, ea_img.sign)
             self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_f_size, ea_img.total_f_size)
-            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_obj_count,
-                                 ea_img.num_of_entries)
-            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_header_and_toc_size,
-                                 ea_img.header_and_toc_size)
+            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_obj_count, ea_img.num_of_entries)
+            self.set_text_in_box(self.tab_controller.new_shape_file_header_info_box.fh_text_header_and_toc_size, ea_img.header_and_toc_size)
             self._execute_new_shape_tab_logic()
 
         # set text for dir entry

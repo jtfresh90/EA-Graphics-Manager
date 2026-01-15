@@ -181,6 +181,14 @@ def encode_image_data_by_entry_type(
             number_of_mipmaps=mipmaps_count,
             mipmaps_resampling_type=mipmaps_resampling_type,
         )
+    elif entry_type == 30:
+        encoded_image_data = image_encoder.encode_n64_image(
+            rgba8888_data,
+            img_width,
+            img_height,
+            ImageFormats.N64_CMPR,
+        )
+
     elif entry_type == 22:
         encoded_image_data = image_encoder.encode_image(
             rgba8888_data,
@@ -200,14 +208,6 @@ def encode_image_data_by_entry_type(
             image_endianess="big",
             max_color_count=16,
             number_of_mipmaps=mipmaps_count,
-        )
-    elif entry_type == 30:
-        # TYPE 30: N64 CMPR (matches decoder)
-        encoded_image_data = image_encoder.encode_n64_image(
-            rgba8888_data,
-            img_width,
-            img_height,
-            ImageFormats.N64_CMPR
         )
     elif entry_type == 25:
         encoded_image_data, encoded_palette_data = image_encoder.encode_indexed_image(
