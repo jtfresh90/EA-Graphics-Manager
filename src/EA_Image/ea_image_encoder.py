@@ -182,12 +182,38 @@ def encode_image_data_by_entry_type(
             mipmaps_resampling_type=mipmaps_resampling_type,
         )
     elif entry_type == 30:
+        # Encode main image
         encoded_image_data = image_encoder.encode_n64_image(
             rgba8888_data,
             img_width,
             img_height,
             ImageFormats.N64_CMPR,
         )
+
+        # Manually generate and encode mipmaps if needed
+        if mipmaps_count > 0:
+            base_img = PIL.Image.frombuffer("RGBA", (img_width, img_height), rgba8888_data, "raw", "RGBA", 0, 1)
+            mip_width = img_width
+            mip_height = img_height
+
+            for i in range(mipmaps_count):
+                mip_width //= 2
+                mip_height //= 2
+
+                # Resize to mipmap size
+                mip_img = base_img.resize((mip_width, mip_height), resample=mipmaps_resampling_type)
+                mip_rgba_data = mip_img.tobytes()
+
+                # Encode the mipmap
+                encoded_mipmap_data = image_encoder.encode_n64_image(
+                    mip_rgba_data,
+                    mip_width,
+                    mip_height,
+                    ImageFormats.N64_CMPR,
+                )
+
+                # Append mipmap data to main image data
+                encoded_image_data += encoded_mipmap_data
 
     elif entry_type == 22:
         encoded_image_data = image_encoder.encode_image(

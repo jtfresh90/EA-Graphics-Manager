@@ -426,17 +426,15 @@ class EAManGui:
                 selected_directory = os.path.dirname(out_file.name)
             except Exception:
                 selected_directory = ""
-            self.current_save_directory_path = selected_directory  # set directory path from history
-            self.user_config.set(
-                "config", "save_directory_path", selected_directory
-            )  # save directory path to config file
+            self.current_save_directory_path = selected_directory
+            self.user_config.set("config", "save_directory_path", selected_directory)
             with open(self.user_config_file_path, "w") as configfile:
                 self.user_config.write(configfile)
         except Exception as error:
             logger.error(f"Error: {error}")
             messagebox.showwarning("Warning", "Failed to save file!")
         if out_file is None:
-            return False  # user closed file dialog on purpose
+            return False
 
         # Saving data
         ea_img_memory_file.seek(0)
@@ -446,70 +444,17 @@ class EAManGui:
             messagebox.showwarning("Warning", "Empty data! Export not possible!")
             return False
 
+        # *** ADD THIS CODE HERE ***
+        # Re-compress if the original file was compressed
+        if ea_img.is_total_f_data_compressed:
+            logger.info("Re-compressing data with RefPack...")
+            out_data = RefpackHandler().compress_data(out_data)
+        # *** END OF NEW CODE ***
+
         out_file.write(out_data)
         out_file.close()
         messagebox.showinfo("Info", "File saved successfully!")
         logger.info(f"EA Image has been exported successfully to {out_file.name}")
-        return True
-
-    def treeview_rclick_open_in_explorer(self, item_iid):
-        ea_img = self.tree_view.tree_man.get_object(item_iid, self.opened_ea_images)
-        subprocess.Popen(rf'explorer /select,{Path(ea_img.f_path)}"')
-
-    def treeview_rclick_export_image(self, item_iid) -> bool:
-        ea_img = self.tree_view.tree_man.get_object(item_iid.split("_")[0], self.opened_ea_images)
-
-        ea_dir = None
-        if "direntry" in item_iid and "binattach" not in item_iid:
-            ea_dir = self.tree_view.tree_man.get_object_dir(ea_img, item_iid)
-            if ea_dir.h_record_id not in CONVERT_IMAGES_SUPPORTED_TYPES:
-                messagebox.showwarning("Warning", f"Image type {ea_dir.h_record_id} is not supported for export!")
-                return False
-
-        else:
-            logger.warning("Warning! Unsupported entry while saving output binary data!")
-
-        out_file = None
-        try:
-            out_file = filedialog.asksaveasfile(
-                mode="wb",
-                defaultextension=".dds",
-                initialdir=self.current_save_directory_path,
-                initialfile=ea_img.f_name + "_" + item_iid,
-                filetypes=(("DDS files", "*.dds"), ("PNG files", "*.png"), ("BMP files", "*.bmp")),
-            )
-            try:
-                selected_directory = os.path.dirname(out_file.name)
-            except Exception:
-                selected_directory = ""
-            self.current_save_directory_path = selected_directory  # set directory path from history
-            self.user_config.set(
-                "config", "save_directory_path", selected_directory
-            )  # save directory path to config file
-            with open(self.user_config_file_path, "w") as configfile:
-                self.user_config.write(configfile)
-        except Exception as error:
-            logger.error(f"Error: {error}")
-            messagebox.showwarning("Warning", "Failed to save file!")
-        if out_file is None:
-            return False  # user closed file dialog on purpose
-
-        # pack converted RGBA data
-        file_extension: str = get_file_extension_uppercase(out_file.name)
-        pillow_wrapper = PillowWrapper()
-        out_data = pillow_wrapper.get_pil_image_file_data_for_export(
-            ea_dir.img_convert_data, ea_dir.h_width, ea_dir.h_height, pillow_format=file_extension
-        )
-        del pillow_wrapper
-        if not out_data:
-            logger.error("Empty data to export!")
-            messagebox.showwarning("Warning", "Empty image data! Export not possible!")
-            return False
-
-        out_file.write(out_data)
-        out_file.close()
-        messagebox.showinfo("Info", "File saved successfully!")
-        logger.info(f"Image has been exported successfully to {out_file.name}")
         return True
 
     def treeview_rclick_import_image(self, item_iid) -> bool:
