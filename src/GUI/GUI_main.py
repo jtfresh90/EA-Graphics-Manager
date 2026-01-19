@@ -489,8 +489,47 @@ class EAManGui:
             messagebox.showwarning("Warning", "Failed to open file!")
             return False
 
+        # Get target dimensions from ea_dir
+        target_width = ea_dir.h_width
+        target_height = ea_dir.h_height
+
+        logger.info(f"Target dimensions: {target_width}x{target_height}")
+
+        # Load the image and check its dimensions
+        try:
+            import_img = Image.open(in_file_path)
+            original_width, original_height = import_img.size
+            logger.info(f"Import image dimensions: {original_width}x{original_height}")
+
+            # Check if resize is needed
+            if original_width != target_width or original_height != target_height:
+                # Ask user if they want to resize
+                resize_msg = (f"The imported image ({original_width}x{original_height}) does not match "
+                              f"the target dimensions ({target_width}x{target_height}).\n\n"
+                              f"Do you want to automatically resize the image?\n"
+                              f"(This may cause quality loss or distortion)")
+
+                if not messagebox.askyesno("Resize Required", resize_msg):
+                    logger.info("User cancelled import due to dimension mismatch")
+                    return False
+
+                # Resize the image
+                logger.info(f"Resizing image from {original_width}x{original_height} to {target_width}x{target_height}")
+                import_img = import_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+            # Convert to RGBA if needed
+            if import_img.mode != 'RGBA':
+                import_img = import_img.convert('RGBA')
+
+            # Get RGBA data
+            rgba_data: bytes = import_img.tobytes()
+
+        except Exception as error:
+            logger.error(f"Failed to process image! Error: {error}")
+            messagebox.showwarning("Warning", f"Failed to process image: {error}")
+            return False
+
         # import logic (raw data replace)
-        rgba_data: bytes = PillowWrapper().get_pil_rgba_data_for_import(in_file_path)
         encode_info_dto: EncodeInfoDTO = encode_ea_image(rgba_data, ea_dir, ea_img, self)
 
         if len(encode_info_dto.encoded_img_data) != len(ea_dir.raw_data):
@@ -530,6 +569,7 @@ class EAManGui:
         self.tree_view.treeview_widget.tag_configure(item_iid, image=self.checkmark_image)
 
         logger.info("Image has been imported successfully")
+        messagebox.showinfo("Success", "Image imported successfully!")
         return True
 
     def treeview_rclick_export_raw(self, item_iid):
@@ -579,6 +619,124 @@ class EAManGui:
         out_file.close()
         messagebox.showinfo("Info", "File saved successfully!")
 
+    def treeview_rclick_export_image(self, item_iid):
+        """Export image entry as DDS/PNG/BMP file"""
+        ea_img = self.tree_view.tree_man.get_object(item_iid.split("_")[0], self.opened_ea_images)
+
+        if "direntry" not in item_iid or "binattach" in item_iid:
+            logger.warning("Warning! Invalid entry for image export!")
+            return False
+
+        ea_dir = self.tree_view.tree_man.get_object_dir(ea_img, item_iid)
+
+        # Check if image conversion is supported
+        if not ea_dir.is_img_convert_supported:
+            messagebox.showwarning("Warning", f"Image type {ea_dir.h_record_id} is not supported for EXPORT!")
+            return False
+
+        # Check if image has been converted
+        if not ea_dir.img_convert_data:
+            messagebox.showwarning("Warning", "Image data not available. Please reopen the file.")
+            return False
+
+        # Prepare suggested filename
+        suggested_name = f"{ea_img.f_name}_{item_iid}"
+
+        try:
+            out_file = filedialog.asksaveasfile(
+                mode="wb",
+                defaultextension=".png",
+                initialdir=self.current_save_directory_path,
+                initialfile=suggested_name,
+                filetypes=(
+                    ("PNG files", "*.png"),
+                    ("BMP files", "*.bmp"),
+                    ("DDS files", "*.dds"),
+                    ("All files", "*.*")
+                ),
+            )
+
+            if out_file is None:
+                return False
+
+            try:
+                selected_directory = os.path.dirname(out_file.name)
+            except Exception:
+                selected_directory = ""
+
+            self.current_save_directory_path = selected_directory
+            self.user_config.set("config", "save_directory_path", selected_directory)
+            with open(self.user_config_file_path, "w") as configfile:
+                self.user_config.write(configfile)
+
+        except Exception as error:
+            logger.error(f"Error: {error}")
+            messagebox.showwarning("Warning", "Failed to save file!")
+            return False
+
+        # Get the file extension - use Path for reliable extension extraction
+        out_file_path = Path(out_file.name)
+        out_file_extension = out_file_path.suffix.upper()  # Returns '.PNG', '.BMP', etc.
+
+        logger.info(f"Exporting image as {out_file_extension} to {out_file.name}")
+
+        try:
+            # Create PIL Image from RGBA data
+            img = Image.frombytes('RGBA', (ea_dir.h_width, ea_dir.h_height), ea_dir.img_convert_data)
+
+            if out_file_extension == ".PNG":
+                img.save(out_file.name, "PNG")
+                logger.info(f"Image saved as PNG")
+
+            elif out_file_extension == ".BMP":
+                # Convert to RGB for BMP (BMP doesn't handle alpha well in standard format)
+                if img.mode == 'RGBA':
+                    # Create white background
+                    rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+                    # Paste the image using alpha as mask
+                    rgb_img.paste(img, mask=img.split()[3])
+                    rgb_img.save(out_file.name, "BMP")
+                else:
+                    img.save(out_file.name, "BMP")
+                logger.info(f"Image saved as BMP")
+
+            elif out_file_extension == ".DDS":
+                # For DDS, we need to save it properly
+                # PIL doesn't natively support DDS saving well, so we'll use a workaround
+                try:
+                    # Try using pillow-dds if available
+                    img.save(out_file.name, "DDS")
+                    logger.info(f"Image saved as DDS")
+                except (ValueError, KeyError) as e:
+                    # If DDS saving fails, offer to save as PNG instead
+                    logger.warning(f"DDS export failed: {e}. Saving as PNG instead.")
+                    png_path = str(out_file_path.with_suffix('.png'))
+                    img.save(png_path, "PNG")
+                    out_file.close()
+                    messagebox.showinfo("Info", f"DDS export not available. Saved as PNG instead at:\n{png_path}")
+                    logger.info(f"Image saved as PNG (fallback from DDS)")
+                    return True
+            else:
+                logger.warning(f"Unsupported format: {out_file_extension}")
+                messagebox.showwarning("Warning",
+                                       f"Unsupported export format '{out_file_extension}'! Please use PNG, BMP, or DDS.")
+                out_file.close()
+                return False
+
+            out_file.close()
+            messagebox.showinfo("Info", "Image exported successfully!")
+            logger.info(f"Image has been exported successfully to {out_file.name}")
+            return True
+
+        except Exception as error:
+            logger.error(f"Error while exporting image: {error}")
+            logger.error(traceback.format_exc())
+            messagebox.showwarning("Warning", f"Failed to export image: {error}")
+            try:
+                out_file.close()
+            except:
+                pass
+            return False
     def quit_program(self):
         logger.info("Quit GUI...")
         self.master.destroy()
